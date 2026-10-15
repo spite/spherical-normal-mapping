@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>Spherical Environment Mapping (MatCap/LitSphere) and Normal Mapping</title>
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<meta name="description" content="Spherical Mapping (MatCap/LitSphere) with Normal Mapping, using WebGL and GLSL. This is an editor to toy around with different materials, normals and render effects. With subdivision, noise and rim lighting.">
+		<style>
+			* { box-sizing: border-box; margin: 0; padding: 0; }
+			body {
+				color: #fff;
+				font-family: tahoma, sans-serif;
+				font-size: 13px;
+				background-color: #222;
+				overflow: hidden;
+			}
+			canvas { position: fixed; left: 0; top: 0; display: block; touch-action: none; }
+			a { color: white; text-shadow: 0 1px 0 rgba( 0, 0, 0, .5 ); }
+			#title, #credits { position: absolute; z-index: 1; left: 10px; line-height: 1.4em; margin-right: 380px; pointer-events: none; }
+			#title { top: 10px; }
+			#credits { bottom: 10px; }
+			#credits p { margin-bottom: 5px; }
+			#title a, #credits a { pointer-events: auto; }
+
+			#options {
+				position: absolute;
+				z-index: 2;
+				right: 0; top: 0; bottom: 0;
+				width: 372px;
+				font-size: 11px;
+				line-height: 1.4em;
+				background-color: rgba( 0, 0, 0, .4 );
+				transform: translateX( 300px );
+				transition: transform 250ms ease-out;
+			}
+			#options:hover, #options.pinned { transform: translateX( 0 ); }
+			#optionsContent { position: absolute; left: 52px; top: 0; right: 0; bottom: 0; padding: 20px; overflow: auto; }
+			#options h1 { margin-bottom: 10px; font-size: 14px; }
+			#options h2 { margin-bottom: 5px; font-size: 11px; }
+			#pinBtn {
+				position: absolute;
+				top: 20px; left: 20px;
+				width: 32px; height: 32px;
+				border: 1px solid white;
+				border-radius: 4px;
+				opacity: .5;
+				background: url(settings.png) 50% 50% no-repeat;
+				transition: opacity 250ms ease-out;
+				cursor: pointer;
+			}
+			#pinBtn:hover, #pinBtn.pinned { opacity: 1; }
+
+			.block { float: left; width: 280px; margin-bottom: 10px; }
+			.list { float: left; width: 265px; }
+			.list li { float: left; margin: 0 4px 4px 0; list-style: none; }
+			.list li:last-child { margin-right: 0; }
+			.thumbs .button { width: 40px; height: 40px; padding: 0; background-size: contain; }
+			.input { position: relative; }
+			.input span { display: block; width: 100px; }
+			.input input { position: absolute; right: 20px; top: 0; }
+
+			.button {
+				display: inline-block;
+				padding: 7px 9px;
+				color: #3c3c3d;
+				text-shadow: 1px 1px 0 #fff;
+				text-decoration: none;
+				white-space: nowrap;
+				background-color: #ececec;
+				border: 1px solid #cacaca;
+				border-radius: 2px;
+				position: relative;
+				cursor: pointer;
+			}
+			.button:hover { color: #fff; border-color: #388ad4; text-shadow: -1px -1px 0 rgba( 0, 0, 0, .3 ); background-color: #2d7dc5; }
+			.button.active, .button:active { color: #fff; border-color: #347bba; text-shadow: none; background-color: #0f5ea2; }
+			.button:active { top: 1px; }
+			.thumbs .button.active { outline: 2px solid #2d7dc5; outline-offset: 1px; }
+			.wide.button { width: 85px; height: 40px; line-height: 24px; text-align: center; }
+			.dropzone { width: 85px; height: 40px; line-height: 38px; text-align: center; border: 1px solid white; border-radius: 4px; cursor: pointer; }
+			.dropzone.over { background-color: rgba( 255, 255, 255, .2 ); }
+
+			#loader {
+				position: absolute;
+				z-index: 3;
+				inset: 0;
+				background-color: rgba( 0, 0, 0, .6 );
+				opacity: 0;
+				pointer-events: none;
+				transition: opacity 250ms ease-out;
+			}
+			#loader.visible { opacity: 1; pointer-events: auto; }
+			#mainLoader { position: absolute; inset: 0; background-color: #000; perspective: 400px; }
+			#cube {
+				position: absolute;
+				left: 50%; top: 50%;
+				width: 100px; height: 100px;
+				margin: -50px 0 0 -50px;
+				transform-style: preserve-3d;
+				animation: rotation 8s infinite ease-in-out;
+			}
+			#cube div {
+				position: absolute;
+				left: 0; top: 0;
+				width: 100px; height: 100px;
+				background-color: white;
+				animation: shade 4s infinite ease-in-out;
+			}
+			#cube div:nth-child(1) { transform: translateZ( 50px ); }
+			#cube div:nth-child(2) { transform: rotateY( 90deg ) translateZ( 50px ); animation-delay: 2s; }
+			#cube div:nth-child(3) { transform: rotateY( 180deg ) translateZ( 50px ); animation-delay: 4s; }
+			#cube div:nth-child(4) { transform: rotateY( 270deg ) translateZ( 50px ); animation-delay: 6s; }
+			#disc2 {
+				position: absolute;
+				left: 50%; top: 50%;
+				width: 100px; height: 500px;
+				margin: -190px 0 0 -50px;
+				opacity: .5;
+				background-color: white;
+				animation: rotation2 8s infinite ease-in-out;
+			}
+			@keyframes rotation { to { transform: rotateY( -360deg ); } }
+			@keyframes rotation2 { from { transform: rotateX( 90deg ) rotateZ( 0 ) scaleY( .2 ); } to { transform: rotateX( 90deg ) rotateZ( 360deg ) scaleY( .2 ); } }
+			@keyframes shade { 50% { background-color: #222; } }
+
+			@media only screen and ( max-width: 700px ) {
+				#title, #credits { margin-right: 80px; }
+				#credits { display: none; }
+			}
+		</style>
+		<script type="importmap">
+		{
+			"imports": {
+				"three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+				"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
+				"three-subdivide": "https://cdn.jsdelivr.net/npm/three-subdivide@1.1.5/src/index.js"
+			}
+		}
+		</script>
+	</head>
+	<body>
+
+		<div id="title">
+			<p><b>Spherical Environment Mapping (MatCap/LitSphere) and Normal Mapping</b></p>
+			<p>Click and drag to rotate, mouse wheel or pinch to zoom.<br>Use the options on the panel on the right!</p>
+		</div>
+
+		<div id="credits">
+			<p>Code by Jaume Sánchez <a href="https://twitter.com/thespite" target="_blank" rel="noopener">@thespite</a>. Find the code on <a href="https://github.com/spite/spherical-normal-mapping" target="_blank" rel="noopener">GitHub</a>.<br>
+			Coded using <a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a> (with <a href="https://github.com/stevinz/three-subdivide" target="_blank" rel="noopener">three-subdivide</a> and ImprovedNoise), <a href="https://ir-ltd.net/" target="_blank" rel="noopener">Lee Perry-Smith's head</a>, <a href="https://en.wikipedia.org/wiki/Blender_(software)#Suzanne" target="_blank" rel="noopener">Suzanne</a>.<br>
+			Textures and normal maps are owned by their respective owners (LitSphere from polycount.com, Luxology, etc.)</p>
+		</div>
+
+		<div id="options">
+			<div id="pinBtn" title="Pin the panel open"></div>
+			<div id="optionsContent">
+				<h1>What to do</h1>
+				<p>You can press the gear button to pin the panel open. Play around selecting <b>texture</b> maps, <b>normal</b> maps to add bumpiness, and different <b>models</b>. There's lot of additional options to tweak, and you can even take <b>snapshots</b> to share. Drop your own images on the <b>Drop</b> boxes, or click them to pick a file.</p>
+				<br>
+				<div class="block">
+					<h2>Material map</h2>
+					<ul class="list thumbs" id="materialList"></ul>
+				</div>
+				<div class="block">
+					<h2>Normal map</h2>
+					<ul class="list thumbs" id="normalList"></ul>
+				</div>
+				<div class="block">
+					<h2>Normal scale</h2>
+					<p class="input"><span>Intensity:</span><input type="range" min="0" max="200" value="50" id="normalValueInput"></p>
+					<p class="input"><span>Repeat:</span><input type="range" min="1" max="10" value="1" id="normalRepeatInput"></p>
+				</div>
+				<div class="block">
+					<h2>Model</h2>
+					<ul class="list" id="geometryList">
+						<li><a href="#" class="button active" data-value="cube">Cube</a></li>
+						<li><a href="#" class="button" data-value="blob">Blob</a></li>
+						<li><a href="#" class="button" data-value="torusKnot">Torus Knot</a></li>
+						<li><a href="#" class="button" data-value="leePerry">Lee Perry</a></li>
+						<li><a href="#" class="button" data-value="suzanne">Suzanne</a></li>
+					</ul>
+				</div>
+				<div class="block">
+					<h2>Rim lighting</h2>
+					<p class="input"><span>Intensity:</span><input type="range" min="0" max="100" value="0" id="rimValueInput"></p>
+					<p class="input"><span>Power:</span><input type="range" min="0" max="100" value="40" id="rimPowerValueInput"></p>
+				</div>
+				<div class="block">
+					<h2>Render options</h2>
+					<p>
+						<a href="#" id="screenBlendingBtn" class="button">Screen Blending</a>
+						<a href="#" id="antialiasingButton" class="button">Antialiasing</a>
+					</p>
+				</div>
+				<div class="block">
+					<h2>Actions</h2>
+					<p>
+						<a href="#" id="fullscreenBtn" class="button">Fullscreen</a>
+						<a href="#" id="snapshotBtn" class="button">Snapshot</a>
+					</p>
+				</div>
+			</div>
+		</div>
+
+		<div id="loader">
+			<div id="mainLoader">
+				<div id="cube"><div></div><div></div><div></div><div></div></div>
+				<div id="disc2"></div>
+			</div>
+		</div>
+
+		<script type="x-shader/x-vertex" id="background-vs">
+
+			void main() {
+
+				gl_Position = vec4( position.xy, 1., 1. );
+
+			}
+
+		</script>
+
+		<script type="x-shader/x-fragment" id="background-fs">
+
+			uniform vec2 resolution;
+			uniform float noise;
+
+			#define VIG_REDUCTION_POWER 5.5
+			#define VIG_BOOST 4.1
+
+			float random( vec3 scale, float seed ) { return fract( sin( dot( gl_FragCoord.xyz + seed, scale ) ) * 43758.5453 + seed ); }
+
+			void main() {
+
+				vec3 color = vec3( 34. / 255. );
+				vec2 center = resolution * .5;
+				float vignette = distance( center, gl_FragCoord.xy ) / resolution.x;
+				vignette = VIG_BOOST - vignette * VIG_REDUCTION_POWER;
+
+				float n = noise * ( .5 - random( vec3( 1. ), length( gl_FragCoord ) ) );
+
+				gl_FragColor = vec4( color * vec3( vignette ) + vec3( n ), 1. );
+
+			}
+
+		</script>
+
+		<script type="x-shader/x-vertex" id="vertexShader">
+
+			uniform vec2 repeat;
+			uniform float useNormal;
+
+			varying vec2 vUv;
+			varying vec3 vNormal;
+			varying vec3 vEye;
+			varying vec2 vN;
+
+			// where a direction reflected around the normal lands in the matcap
+			vec2 matcap( vec3 eye, vec3 normal ) {
+
+				vec3 r = reflect( eye, normal );
+				float m = 2. * sqrt( r.x * r.x + r.y * r.y + ( r.z + 1. ) * ( r.z + 1. ) );
+				return r.xy / m + .5;
+
+			}
+
+			void main() {
+
+				vec4 mvPosition = modelViewMatrix * vec4( position, 1. );
+
+				vEye = mvPosition.xyz;
+				vNormal = normalize( normalMatrix * normal );
+				vN = useNormal == 0. ? matcap( normalize( vEye ), vNormal ) : vec2( 0. );
+				vUv = repeat * uv;
+
+				gl_Position = projectionMatrix * mvPosition;
+
+			}
+
+		</script>
+
+		<script type="x-shader/x-fragment" id="fragmentShader">
+
+			uniform sampler2D tNormal;
+			uniform sampler2D tMatCap;
+			uniform float noise;
+			uniform float useNormal;
+			uniform float useRim;
+			uniform float rimPower;
+			uniform float useScreen;
+			uniform float normalScale;
+			uniform float normalRepeat;
+
+			varying vec2 vUv;
+			varying vec3 vNormal;
+			varying vec3 vEye;
+			varying vec2 vN;
+
+			float random( vec3 scale, float seed ) { return fract( sin( dot( gl_FragCoord.xyz + seed, scale ) ) * 43758.5453 + seed ); }
+
+			// the normal map in view space, with the tangents taken from how the uvs change across the screen
+			vec3 perturbNormal( vec3 eye, vec3 n, vec3 mapN, vec2 uv ) {
+
+				vec3 q0 = dFdx( eye );
+				vec3 q1 = dFdy( eye );
+				vec2 st0 = dFdx( uv );
+				vec2 st1 = dFdy( uv );
+
+				vec3 q1perp = cross( q1, n );
+				vec3 q0perp = cross( n, q0 );
+				vec3 T = q1perp * st0.x + q0perp * st1.x;
+				vec3 B = q1perp * st0.y + q0perp * st1.y;
+
+				float det = max( dot( T, T ), dot( B, B ) );
+				float scale = det == 0. ? 0. : inversesqrt( det );
+
+				return normalize( T * ( mapN.x * scale ) + B * ( mapN.y * scale ) + n * mapN.z );
+
+			}
+
+			void main() {
+
+				vec3 n = normalize( vNormal ) * ( gl_FrontFacing ? 1. : - 1. );
+				vec2 calculatedNormal = vN;
+
+				if ( useNormal == 1. ) {
+
+					vec2 uv = vUv * normalRepeat;
+					vec3 normalTex = texture2D( tNormal, uv ).xyz * 2. - 1.;
+					normalTex.xy *= normalScale;
+
+					vec3 r = reflect( normalize( vEye ), perturbNormal( vEye, n, normalize( normalTex ), uv ) );
+					float m = 2. * sqrt( r.x * r.x + r.y * r.y + ( r.z + 1. ) * ( r.z + 1. ) );
+					calculatedNormal = r.xy / m + .5;
+
+				}
+
+				vec3 base = texture2D( tMatCap, calculatedNormal ).rgb;
+
+				// rim lighting
+				if ( useRim > 0. ) {
+
+					float f = rimPower * abs( dot( n, normalize( vEye ) ) );
+					base += vec3( useRim * ( 1. - smoothstep( 0., 1., f ) ) );
+
+				}
+
+				// screen blending
+				if ( useScreen == 1. ) base = vec3( 1. ) - ( vec3( 1. ) - base ) * ( vec3( 1. ) - base );
+
+				// noise
+				base += noise * ( .5 - random( vec3( 1. ), length( gl_FragCoord ) ) );
+
+				gl_FragColor = vec4( base, 1. );
+
+			}
+
+		</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
+import { LoopSubdivision } from 'three-subdivide';
+
+const materials = [
+	'944_large_remake2.jpg', 'TwilightFisheye.jpg', 'jeepster_skinmat2.jpg', 'JoshSingh_matcap.jpg',
+	'mydarkgreymetal_zbrush_matcap_by_digitalinkrod.jpg', 'mygreenshinmetal_zbrush_matcap_by_digitalinkrod.jpg', 'myredmetal_zbrush_matcap_by_digitalinkrod.jpg',
+	'gooch.jpg', 'smoothmat.jpg', 'LitSphere_example_4.jpg', '5cad3098d01a8d232b753acad6f39972.jpg', 'bluew2.jpg', 'bluew.jpg',
+	'blu_green_litsphere_by_jujikabane.jpg', 'daphz3.jpg', 'daphz2.jpg', 'daphz1.jpg', 'scooby_skin_mix.jpg',
+	'LitSphere_test_05.jpg', 'LitSphere_test_04.jpg', 'LitSphere_test_03.jpg', 'LitSphere_test_02.jpg',
+	'LitSphere_example_5.jpg', 'LitSphere_example_3.jpg', 'LitSphere_example_2.jpg',
+	'matball07.jpg', 'matball04.jpg', 'matball06.jpg', 'matball05.jpg', 'matball03.jpg', 'matball02.jpg', 'matball01.jpg',
+	'redsphere.jpg', '93e1bbcf77ece0c0f7fc79ecb8ff0d00.jpg'
+];
+
+const normals = [
+	'243-normal.jpg', 'wrinkle-normal.jpg', '295-normal.jpg', '879-normal.jpg', '2563-normal.jpg', 'brick-normal.jpg',
+	'floor2_ddn.jpg', 'forestfloornrmii7.jpg', 'normal.jpg', 'normalmap_tile_even.jpg', 'normalmap1.jpg', 'stage7.jpg',
+	'Worn Temple Wall.jpg', 'fig29.png', 'Wall3_normalmap.jpg', 'metal1_normalmap.jpg', '99232450425c8132b17dbccf65da365a.jpg',
+	'4918-normal.jpg', 'cr_wallpaper1_NRM.jpg', 'stone_wall_normal_map.jpg', '02.jpg', '242-normal.jpg', '7146-normal.jpg',
+	'1324-normal.jpg', 'Rock_01_local.jpg', '6624-normal.jpg'
+];
+
+const $ = id => document.getElementById( id );
+const loaderOverlay = $( 'loader' );
+const showLoader = show => loaderOverlay.classList.toggle( 'visible', show );
+
+showLoader( true );
+
+// ---- renderer, scene and the materials
+
+let supersample = false;
+
+const renderer = new THREE.WebGLRenderer( { antialias: true } );
+document.body.appendChild( renderer.domElement );
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera( 120, window.innerWidth / window.innerHeight, 10, 1000 );
+
+const textureLoader = new THREE.TextureLoader();
+
+const material = new THREE.ShaderMaterial( {
+	uniforms: {
+		tNormal: { value: null },
+		tMatCap: { value: textureLoader.load( 'matcap/jeepster_skinmat2.jpg' ) },
+		noise: { value: .04 },
+		repeat: { value: new THREE.Vector2( 1, 1 ) },
+		useNormal: { value: 0 },
+		useRim: { value: 0 },
+		rimPower: { value: 2 },
+		useScreen: { value: 0 },
+		normalScale: { value: .5 },
+		normalRepeat: { value: 1 }
+	},
+	vertexShader: $( 'vertexShader' ).textContent,
+	fragmentShader: $( 'fragmentShader' ).textContent,
+	side: THREE.DoubleSide
+} );
+
+// a vignette with grain behind everything
+const background = new THREE.Mesh( new THREE.PlaneGeometry( 2, 2 ), new THREE.ShaderMaterial( {
+	uniforms: {
+		resolution: { value: new THREE.Vector2() },
+		noise: { value: .04 }
+	},
+	vertexShader: $( 'background-vs' ).textContent,
+	fragmentShader: $( 'background-fs' ).textContent,
+	depthTest: false,
+	depthWrite: false
+} ) );
+background.frustumCulled = false;
+background.renderOrder = - 1;
+scene.add( background );
+
+// ---- the panel: matcaps, normal maps, and your own images
+
+function setMatCap( texture ) {
+
+	if ( material.uniforms.tMatCap.value ) material.uniforms.tMatCap.value.dispose();
+	material.uniforms.tMatCap.value = texture;
+
+}
+
+function setNormalMap( texture ) {
+
+	if ( material.uniforms.tNormal.value ) material.uniforms.tNormal.value.dispose();
+	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	material.uniforms.tNormal.value = texture;
+	material.uniforms.useNormal.value = 1;
+
+}
+
+function choose( list, button ) {
+
+	for ( const other of list.querySelectorAll( '.button' ) ) other.classList.toggle( 'active', other === button );
+
+}
+
+function thumbnail( list, url, title, onClick ) {
+
+	const li = document.createElement( 'li' );
+	const a = document.createElement( 'a' );
+	a.href = '#';
+	a.title = title;
+	a.className = 'button';
+	a.innerHTML = '&nbsp;';
+	a.style.backgroundImage = `url("${ encodeURI( url ) }")`;
+	a.addEventListener( 'click', function ( e ) {
+
+		e.preventDefault();
+		choose( list, a );
+		onClick();
+
+	} );
+	li.appendChild( a );
+	list.appendChild( li );
+	return a;
+
+}
+
+// a box to drop an image on, or click to pick one
+function dropZone( list, onImage ) {
+
+	const li = document.createElement( 'li' );
+	const zone = document.createElement( 'div' );
+	zone.className = 'dropzone';
+	zone.textContent = 'Drop';
+	zone.title = 'Drop an image here, or click to pick one';
+
+	const input = document.createElement( 'input' );
+	input.type = 'file';
+	input.accept = 'image/*';
+	input.hidden = true;
+
+	const read = function ( file ) {
+
+		if ( ! file || ! file.type.startsWith( 'image/' ) ) return;
+		const url = URL.createObjectURL( file );
+		textureLoader.load( url, function ( texture ) {
+
+			URL.revokeObjectURL( url );
+			choose( list, null );
+			onImage( texture );
+
+		}, undefined, () => alert( 'Couldn\'t read that image.' ) );
+
+	};
+
+	zone.addEventListener( 'click', () => input.click() );
+	input.addEventListener( 'change', () => read( input.files[ 0 ] ) );
+	zone.addEventListener( 'dragenter', e => { e.preventDefault(); zone.classList.add( 'over' ); } );
+	zone.addEventListener( 'dragover', e => { e.preventDefault(); zone.classList.add( 'over' ); } );
+	zone.addEventListener( 'dragleave', () => zone.classList.remove( 'over' ) );
+	zone.addEventListener( 'drop', function ( e ) {
+
+		e.preventDefault();
+		zone.classList.remove( 'over' );
+		read( e.dataTransfer.files[ 0 ] );
+
+	} );
+
+	li.append( zone, input );
+	list.appendChild( li );
+
+}
+
+const materialList = $( 'materialList' );
+for ( const file of materials ) {
+
+	const a = thumbnail( materialList, 'matcap/' + file, file, () => setMatCap( textureLoader.load( 'matcap/' + file ) ) );
+	if ( file === 'jeepster_skinmat2.jpg' ) a.classList.add( 'active' );
+
+}
+dropZone( materialList, setMatCap );
+
+const normalList = $( 'normalList' );
+for ( const file of normals ) thumbnail( normalList, 'normal/' + file, file, () => textureLoader.load( 'normal/' + file, setNormalMap ) );
+{
+
+	const li = document.createElement( 'li' );
+	const none = document.createElement( 'a' );
+	none.href = '#';
+	none.className = 'button wide active';
+	none.textContent = 'None';
+	none.addEventListener( 'click', function ( e ) {
+
+		e.preventDefault();
+		choose( normalList, none );
+		material.uniforms.useNormal.value = 0;
+
+	} );
+	li.appendChild( none );
+	normalList.appendChild( li );
+
+}
+dropZone( normalList, setNormalMap );
+
+$( 'pinBtn' ).addEventListener( 'click', function () {
+
+	this.classList.toggle( 'pinned' );
+	$( 'options' ).classList.toggle( 'pinned' );
+
+} );
+
+const slider = ( id, set ) => { const input = $( id ); input.addEventListener( 'input', () => set( Number( input.value ) ) ); };
+slider( 'normalValueInput', v => { material.uniforms.normalScale.value = v / 100; } );
+slider( 'normalRepeatInput', v => { material.uniforms.normalRepeat.value = v; } );
+slider( 'rimValueInput', v => { material.uniforms.useRim.value = v / 100; } );
+slider( 'rimPowerValueInput', v => { material.uniforms.rimPower.value = v / 20; } );
+
+$( 'screenBlendingBtn' ).addEventListener( 'click', function ( e ) {
+
+	e.preventDefault();
+	material.uniforms.useScreen.value = 1 - material.uniforms.useScreen.value;
+	this.classList.toggle( 'active', material.uniforms.useScreen.value === 1 );
+
+} );
+
+// twice the pixels, scaled down by the browser
+$( 'antialiasingButton' ).addEventListener( 'click', function ( e ) {
+
+	e.preventDefault();
+	supersample = ! supersample;
+	this.classList.toggle( 'active', supersample );
+	resize();
+
+} );
+
+$( 'fullscreenBtn' ).addEventListener( 'click', function ( e ) {
+
+	e.preventDefault();
+	if ( document.fullscreenElement ) document.exitFullscreen();
+	else document.documentElement.requestFullscreen();
+
+} );
+
+$( 'snapshotBtn' ).addEventListener( 'click', function ( e ) {
+
+	e.preventDefault();
+
+	// drawn again now, so the canvas still has the picture when it's read
+	renderer.render( scene, camera );
+	renderer.domElement.toBlob( function ( blob ) {
+
+		const a = document.createElement( 'a' );
+		a.href = URL.createObjectURL( blob );
+		a.download = `clicktorelease.com-litSphere-${ Date.now() }.png`;
+		a.click();
+		setTimeout( () => URL.revokeObjectURL( a.href ), 1000 );
+
+	} );
+
+} );
+
+// ---- the models
+
+const noise = new ImprovedNoise();
+
+function cube() {
+
+	material.uniforms.repeat.value.set( 1, 1 );
+	return LoopSubdivision.modify( new THREE.BoxGeometry( 30, 30, 30, 10, 10, 10 ), 2 );
+
+}
+
+function blob() {
+
+	const geometry = new THREE.BoxGeometry( 30, 30, 30, 30, 30, 30 );
+	const position = geometry.attributes.position;
+	const v = new THREE.Vector3(), n = new THREE.Vector3();
+	const f = .05;
+
+	for ( let i = 0; i < position.count; i ++ ) {
+
+		n.fromBufferAttribute( position, i ).normalize();
+		v.copy( n ).multiplyScalar( 30 );
+		v.add( n.multiplyScalar( 10 * noise.noise( f * v.x, f * v.y, f * v.z ) ) );
+		position.setXYZ( i, v.x, v.y, v.z );
+
+	}
+
+	material.uniforms.repeat.value.set( 1, 1 );
+
+	// smooth across the faces of the box, which don't share their vertices
+	return toCreasedNormals( geometry, Math.PI );
+
+}
+
+function torusKnot() {
+
+	material.uniforms.repeat.value.set( 8, 1 );
+	return new THREE.TorusKnotGeometry( 20, 6, 200, 100, 1, 3 );
+
+}
+
+let head = null;
+
+async function leePerry() {
+
+	if ( head === null ) {
+
+		const gltf = await new GLTFLoader().loadAsync( 'models/LeePerrySmith.glb' );
+		let geometry = null;
+		gltf.scene.traverse( o => { if ( o.isMesh && geometry === null ) geometry = o.geometry; } );
+
+		// centred, and as wide as the head of the original
+		geometry.computeBoundingBox();
+		const box = geometry.boundingBox;
+		geometry.translate( - ( box.min.x + box.max.x ) / 2, - ( box.min.y + box.max.y ) / 2, - ( box.min.z + box.max.z ) / 2 );
+		geometry.scale( 85.6 / ( box.max.x - box.min.x ), 85.6 / ( box.max.x - box.min.x ), 85.6 / ( box.max.x - box.min.x ) );
+
+		head = LoopSubdivision.modify( geometry, 1 );
+
+	}
+
+	material.uniforms.repeat.value.set( 4, 4 );
+	return head;
+
+}
+
+async function suzanne() {
+
+	const data = await ( await fetch( 'models/suzanne.json' ) ).json();
+	const positions = [], uvs = [];
+	const v = new THREE.Vector3();
+
+	// two triangles for each quad, with uvs from where each vertex points
+	for ( const quad of data.faces ) {
+
+		for ( const i of [ quad[ 0 ], quad[ 1 ], quad[ 2 ], quad[ 0 ], quad[ 2 ], quad[ 3 ] ] ) {
+
+			v.fromArray( data.vertices[ i ] ).multiplyScalar( 30 );
+			positions.push( v.x, v.y, v.z );
+			v.normalize();
+			uvs.push( .5 - Math.atan( v.z ) / ( 2 * Math.PI ), .5 - Math.asin( v.y ) / Math.PI );
+
+		}
+
+	}
+
+	const geometry = new THREE.BufferGeometry();
+	geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
+	geometry.setAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
+	geometry.computeVertexNormals();
+
+	material.uniforms.repeat.value.set( 4, 4 );
+	return LoopSubdivision.modify( geometry, 2 );
+
+}
+
+const models = { cube, blob, torusKnot, leePerry, suzanne };
+let mesh = null;
+
+async function setModel( name ) {
+
+	showLoader( true );
+
+	// a frame for the loader to show before the work
+	await new Promise( resolve => setTimeout( resolve, 50 ) );
+
+	const geometry = await models[ name ]();
+
+	if ( mesh ) {
+
+		scene.remove( mesh );
+		if ( mesh.geometry !== head ) mesh.geometry.dispose();
+
+	}
+
+	if ( geometry.attributes.normal === undefined ) geometry.computeVertexNormals();
+	mesh = new THREE.Mesh( geometry, material );
+	scene.add( mesh );
+
+	showLoader( false );
+
+}
+
+const modelButtons = [ ...document.querySelectorAll( '#geometryList a' ) ];
+for ( const button of modelButtons ) {
+
+	button.addEventListener( 'click', function ( e ) {
+
+		e.preventDefault();
+		for ( const other of modelButtons ) other.classList.toggle( 'active', other === button );
+		setModel( button.dataset.value );
+
+	} );
+
+}
+
+// ---- looking around: drag to turn, wheel or pinch to zoom
+
+let lon = 90, nlon = 110, lat = 15, nlat = 17, fov = 120, nfov = 45;
+
+const canvas = renderer.domElement;
+const pointers = new Map();
+let down = null, pinch = 0;
+
+canvas.addEventListener( 'pointerdown', function ( e ) {
+
+	canvas.setPointerCapture( e.pointerId );
+	pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
+	down = { x: e.clientX, y: e.clientY, lon: nlon, lat: nlat };
+	pinch = 0;
+
+} );
+
+canvas.addEventListener( 'pointermove', function ( e ) {
+
+	if ( ! pointers.has( e.pointerId ) ) return;
+	pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
+
+	if ( pointers.size === 2 ) {
+
+		const [ a, b ] = [ ...pointers.values() ];
+		const distance = Math.hypot( a.x - b.x, a.y - b.y );
+		if ( pinch > 0 ) nfov *= pinch / distance;
+		pinch = distance;
+		return;
+
+	}
+
+	if ( down === null ) return;
+	nlon = ( e.clientX - down.x ) * .1 + down.lon;
+	nlat = ( e.clientY - down.y ) * .1 + down.lat;
+
+} );
+
+function release( e ) {
+
+	pointers.delete( e.pointerId );
+	const [ rest ] = pointers.values();
+	down = rest ? { x: rest.x, y: rest.y, lon: nlon, lat: nlat } : null;
+	pinch = 0;
+
+}
+
+canvas.addEventListener( 'pointerup', release );
+canvas.addEventListener( 'pointercancel', release );
+
+canvas.addEventListener( 'wheel', function ( e ) {
+
+	e.preventDefault();
+	nfov += e.deltaY * ( e.deltaMode === 1 ? 16 : 1 ) * .012;
+
+}, { passive: false } );
+
+function resize() {
+
+	const ratio = Math.min( 4, window.devicePixelRatio * ( supersample ? 2 : 1 ) );
+
+	renderer.setPixelRatio( ratio );
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	camera.aspect = window.innerWidth / window.innerHeight;
+	background.material.uniforms.resolution.value.set( window.innerWidth * ratio, window.innerHeight * ratio );
+
+}
+
+window.addEventListener( 'resize', resize );
+resize();
+
+let last = performance.now();
+
+function render() {
+
+	requestAnimationFrame( render );
+
+	const now = performance.now();
+	const ease = 1 - Math.pow( .8, Math.min( .1, ( now - last ) / 1000 ) * 60 );
+	last = now;
+
+	nlat = Math.max( - 85, Math.min( 85, nlat ) );
+	nfov = Math.max( 10, Math.min( 120, nfov ) );
+
+	lon += ( nlon - lon ) * ease;
+	lat += ( nlat - lat ) * ease;
+	fov += ( nfov - fov ) * ease;
+	camera.fov = fov;
+	camera.updateProjectionMatrix();
+
+	const phi = ( 90 - lat ) * Math.PI / 180;
+	const theta = lon * Math.PI / 180;
+	camera.position.set( 100 * Math.sin( phi ) * Math.cos( theta ), 100 * Math.cos( phi ), 100 * Math.sin( phi ) * Math.sin( theta ) );
+	camera.lookAt( scene.position );
+
+	renderer.render( scene, camera );
+
+}
+
+textureLoader.load( 'normal/243-normal.jpg', function ( texture ) {
+
+	setNormalMap( texture );
+	material.uniforms.useNormal.value = 0;
+
+} );
+
+setModel( 'cube' ).then( render );
+</script>
+
+	</body>
+</html>
