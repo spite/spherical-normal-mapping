@@ -451,6 +451,28 @@ function setNormalMap( texture ) {
 
 }
 
+// loads images for one texture of the material: the last one asked for is shown, whatever order they load in
+function imageSlot( apply ) {
+
+	let last = 0;
+
+	return function ( url, onLoad, onError ) {
+
+		const request = ++ last;
+		textureLoader.load( url, function ( texture ) {
+
+			if ( onLoad ) onLoad();
+			if ( request === last ) apply( texture ); else texture.dispose();
+
+		}, undefined, onError );
+
+	};
+
+}
+
+const loadMatCap = imageSlot( setMatCap );
+const loadNormalMap = imageSlot( setNormalMap );
+
 function choose( list, button ) {
 
 	for ( const other of list.querySelectorAll( '.button' ) ) other.classList.toggle( 'active', other === button );
@@ -480,7 +502,7 @@ function thumbnail( list, url, title, onClick ) {
 }
 
 // a box to drop an image on, or click to pick one
-function dropZone( list, onImage ) {
+function dropZone( list, load ) {
 
 	const li = document.createElement( 'li' );
 	const zone = document.createElement( 'div' );
@@ -497,13 +519,8 @@ function dropZone( list, onImage ) {
 
 		if ( ! file || ! file.type.startsWith( 'image/' ) ) return;
 		const url = URL.createObjectURL( file );
-		textureLoader.load( url, function ( texture ) {
-
-			URL.revokeObjectURL( url );
-			choose( list, null );
-			onImage( texture );
-
-		}, undefined, () => alert( 'Couldn\'t read that image.' ) );
+		choose( list, null );
+		load( url, () => URL.revokeObjectURL( url ), () => { URL.revokeObjectURL( url ); alert( 'Couldn\'t read that image.' ); } );
 
 	};
 
@@ -528,14 +545,14 @@ function dropZone( list, onImage ) {
 const materialList = $( 'materialList' );
 for ( const file of materials ) {
 
-	const a = thumbnail( materialList, 'matcap/' + file, file, () => setMatCap( textureLoader.load( 'matcap/' + file ) ) );
+	const a = thumbnail( materialList, 'matcap/' + file, file, () => loadMatCap( 'matcap/' + file ) );
 	if ( file === 'jeepster_skinmat2.jpg' ) a.classList.add( 'active' );
 
 }
-dropZone( materialList, setMatCap );
+dropZone( materialList, loadMatCap );
 
 const normalList = $( 'normalList' );
-for ( const file of normals ) thumbnail( normalList, 'normal/' + file, file, () => textureLoader.load( 'normal/' + file, setNormalMap ) );
+for ( const file of normals ) thumbnail( normalList, 'normal/' + file, file, () => loadNormalMap( 'normal/' + file ) );
 {
 
 	const li = document.createElement( 'li' );
@@ -587,6 +604,9 @@ $( 'antialiasingButton' ).addEventListener( 'click', function ( e ) {
 
 } );
 
+// iPhones can only make videos full screen
+if ( ! document.fullscreenEnabled ) $( 'fullscreenBtn' ).style.display = 'none';
+
 $( 'fullscreenBtn' ).addEventListener( 'click', function ( e ) {
 
 	e.preventDefault();
@@ -619,7 +639,6 @@ const noise = new ImprovedNoise();
 
 function cube() {
 
-	material.uniforms.repeat.value.set( 1, 1 );
 	return LoopSubdivision.modify( new THREE.BoxGeometry( 30, 30, 30, 10, 10, 10 ), 2 );
 
 }
@@ -640,8 +659,6 @@ function blob() {
 
 	}
 
-	material.uniforms.repeat.value.set( 1, 1 );
-
 	// smooth across the faces of the box, which don't share their vertices
 	return toCreasedNormals( geometry, Math.PI );
 
@@ -649,33 +666,23 @@ function blob() {
 
 function torusKnot() {
 
-	material.uniforms.repeat.value.set( 8, 1 );
 	return new THREE.TorusKnotGeometry( 20, 6, 200, 100, 1, 3 );
 
 }
 
-let head = null;
-
 async function leePerry() {
 
-	if ( head === null ) {
+	const gltf = await new GLTFLoader().loadAsync( 'models/LeePerrySmith.glb' );
+	let geometry = null;
+	gltf.scene.traverse( o => { if ( o.isMesh && geometry === null ) geometry = o.geometry; } );
 
-		const gltf = await new GLTFLoader().loadAsync( 'models/LeePerrySmith.glb' );
-		let geometry = null;
-		gltf.scene.traverse( o => { if ( o.isMesh && geometry === null ) geometry = o.geometry; } );
+	// centred, and as wide as the head of the original
+	geometry.computeBoundingBox();
+	const box = geometry.boundingBox;
+	geometry.translate( - ( box.min.x + box.max.x ) / 2, - ( box.min.y + box.max.y ) / 2, - ( box.min.z + box.max.z ) / 2 );
+	geometry.scale( 85.6 / ( box.max.x - box.min.x ), 85.6 / ( box.max.x - box.min.x ), 85.6 / ( box.max.x - box.min.x ) );
 
-		// centred, and as wide as the head of the original
-		geometry.computeBoundingBox();
-		const box = geometry.boundingBox;
-		geometry.translate( - ( box.min.x + box.max.x ) / 2, - ( box.min.y + box.max.y ) / 2, - ( box.min.z + box.max.z ) / 2 );
-		geometry.scale( 85.6 / ( box.max.x - box.min.x ), 85.6 / ( box.max.x - box.min.x ), 85.6 / ( box.max.x - box.min.x ) );
-
-		head = LoopSubdivision.modify( geometry, 1 );
-
-	}
-
-	material.uniforms.repeat.value.set( 4, 4 );
-	return head;
+	return LoopSubdivision.modify( geometry, 1 );
 
 }
 
@@ -704,39 +711,74 @@ async function suzanne() {
 	geometry.setAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
 	geometry.computeVertexNormals();
 
-	material.uniforms.repeat.value.set( 4, 4 );
 	return LoopSubdivision.modify( geometry, 2 );
 
 }
 
-const models = { cube, blob, torusKnot, leePerry, suzanne };
-let mesh = null;
+const models = {
+	cube: { make: cube, repeat: [ 1, 1 ] },
+	blob: { make: blob, repeat: [ 1, 1 ] },
+	torusKnot: { make: torusKnot, repeat: [ 8, 1 ] },
+	leePerry: { make: leePerry, repeat: [ 4, 4 ] },
+	suzanne: { make: suzanne, repeat: [ 4, 4 ] }
+};
 
-async function setModel( name ) {
+const geometries = new Map(); // name -> Promise of its geometry, made once
+const modelButtons = [ ...document.querySelectorAll( '#geometryList a' ) ];
+let mesh = null, shown = null, request = 0;
 
-	showLoader( true );
+function geometryOf( name ) {
 
-	// a frame for the loader to show before the work
-	await new Promise( resolve => setTimeout( resolve, 50 ) );
+	if ( ! geometries.has( name ) ) {
 
-	const geometry = await models[ name ]();
+		const made = Promise.resolve().then( models[ name ].make ).then( geometry => {
 
-	if ( mesh ) {
+			if ( geometry.attributes.normal === undefined ) geometry.computeVertexNormals();
+			return geometry;
 
-		scene.remove( mesh );
-		if ( mesh.geometry !== head ) mesh.geometry.dispose();
+		} );
+
+		// one that failed can be tried again
+		made.catch( () => geometries.delete( name ) );
+		geometries.set( name, made );
 
 	}
 
-	if ( geometry.attributes.normal === undefined ) geometry.computeVertexNormals();
-	mesh = new THREE.Mesh( geometry, material );
-	scene.add( mesh );
-
-	showLoader( false );
+	return geometries.get( name );
 
 }
 
-const modelButtons = [ ...document.querySelectorAll( '#geometryList a' ) ];
+async function setModel( name ) {
+
+	const current = ++ request;
+	showLoader( true );
+
+	try {
+
+		// a frame for the loader to show before the work
+		if ( ! geometries.has( name ) ) await new Promise( resolve => setTimeout( resolve, 50 ) );
+
+		const geometry = await geometryOf( name );
+		if ( current !== request ) return;
+
+		material.uniforms.repeat.value.fromArray( models[ name ].repeat );
+		if ( mesh === null ) scene.add( mesh = new THREE.Mesh( geometry, material ) );
+		else mesh.geometry = geometry;
+		shown = name;
+
+	} catch ( e ) {
+
+		console.error( e );
+		if ( current === request ) for ( const button of modelButtons ) button.classList.toggle( 'active', button.dataset.value === shown );
+
+	} finally {
+
+		if ( current === request ) showLoader( false );
+
+	}
+
+}
+
 for ( const button of modelButtons ) {
 
 	button.addEventListener( 'click', function ( e ) {
